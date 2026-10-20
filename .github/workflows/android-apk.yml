@@ -3,7 +3,7 @@ name: AADriverLauncher Build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/android-auto-vi]
     paths:
       - "app/**"
       - "macrobenchmark/**"
