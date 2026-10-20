@@ -20,6 +20,7 @@ val localProps = Properties().apply {
 fun secret(name: String): String? =
     localProps.getProperty(name)?.takeIf { it.isNotBlank() }
         ?: providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.takeIf { it.isNotBlank() }
             .also { if (it == null) logger.warn("⚠ $name chybí v local.properties i ~/.gradle/gradle.properties") }
 
 val mapboxAccessToken: String = secret("MAPBOX_ACCESS_TOKEN") ?: "MAPBOX_TOKEN_HERE"
