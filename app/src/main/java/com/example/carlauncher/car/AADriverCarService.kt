@@ -10,6 +10,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.graphics.Path
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -58,6 +61,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private val mapRenderer = CarMapSnapshotter(ctx)
     private var mapBitmap: Bitmap? = null
     private var lastMapRequest = 0L
+    private val vietnamZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val listener = LocationListener { update -> location = update; draw() }
     private val tick = object : Runnable {
         override fun run() { requestMap(); draw(); handler.postDelayed(this, 1000L) }
@@ -99,11 +103,17 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         lastMapRequest = now
         val zoom = prefs.getInt("map_zoom", 16).coerceIn(12, 20).toDouble()
         val pitch = prefs.getInt("map_pitch", 45).coerceIn(0, 60).toDouble()
+        val hour = ZonedDateTime.now(vietnamZone).hour
+        val night = when (prefs.getString("map_theme", "auto")) {
+            "dark" -> true
+            "light" -> false
+            else -> hour < 6 || hour >= 18
+        }
         val followBearing = prefs.getBoolean("follow_bearing", true)
         val bearing = if (followBearing && loc.hasBearing()) loc.bearing.toDouble() else 0.0
         mapRenderer.request(loc.latitude, loc.longitude, bearing, zoom, pitch,
             (width * .635f).toInt().coerceAtLeast(64),
-            (height * .84f).toInt().coerceAtLeast(64)) { bitmap ->
+            (height * .84f).toInt().coerceAtLeast(64), night) { bitmap ->
             if (bitmap != null) {
                 mapBitmap = bitmap
                 draw()
@@ -136,16 +146,34 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 text(canvas, "Đang tải bản đồ Mapbox...", w*.05f, h*.52f, small, white)
             }
             val cx=(w*.025f+mapRight)/2f; val cy=h*.54f
-            paint.color=accent
-            canvas.drawCircle(cx,cy,h*.03f,paint)
+            // Heading-up car marker; map bearing already rotates the underlying streets.
+            val marker = h * .045f
+            val vehicle = Path().apply {
+                moveTo(cx, cy - marker)
+                lineTo(cx - marker*.64f, cy + marker*.75f)
+                lineTo(cx, cy + marker*.40f)
+                lineTo(cx + marker*.64f, cy + marker*.75f)
+                close()
+            }
+            paint.color = Color.rgb(10, 22, 38)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = h*.009f
+            canvas.drawPath(vehicle,paint)
+            paint.style = Paint.Style.FILL
+            paint.color = accent
+            canvas.drawPath(vehicle,paint)
             val loc=location
-            text(canvas,if(loc==null) "Đang chờ GPS..." else "Vị trí xe • GPS",w*.05f,h*.20f,small,white)
-            text(canvas,if(loc==null) "-- km/h" else "${(loc.speed*3.6f).toInt()} km/h",w*.05f,h*.28f,small*1.5f,accent)
+            paint.color = Color.argb(208, 11, 16, 24)
+            canvas.drawRoundRect(w*.045f,h*.155f,w*.31f,h*.315f,16f,16f,paint)
+            val speed = if (loc==null) "--" else (loc.speed*3.6f).toInt().coerceAtLeast(0).toString()
+            text(canvas,"$speed km/h",w*.065f,h*.265f,small*1.6f,accent)
             if(loc!=null) {
-                text(canvas,String.format(Locale.US,"%.5f, %.5f",loc.latitude,loc.longitude),w*.05f,h*.86f,small*.85f,white)
+                paint.color = Color.argb(190, 11, 16, 24)
+                canvas.drawRoundRect(w*.045f,h*.815f,w*.46f,h*.89f,12f,12f,paint)
+                text(canvas,String.format(Locale.US,"%.5f, %.5f",loc.latitude,loc.longitude),w*.06f,h*.865f,small*.75f,white)
             }
             val right=w*.69f
-            val today=LocalDate.now()
+            val today=ZonedDateTime.now(vietnamZone).toLocalDate()
             val lunar=LunarCalendar.solarToLunar(today.dayOfMonth,today.monthValue,today.year)
             text(canvas,"LỊCH VIỆT NAM",right,h*.19f,small,accent)
             text(canvas,today.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),right,h*.28f,small*1.3f,white)
