@@ -26,6 +26,8 @@ import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.car.app.validation.HostValidator
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.carlauncher.config.Events
 import com.example.carlauncher.config.LunarCalendar
 import java.time.LocalDate
@@ -139,5 +141,9 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         .setActionStrip(ActionStrip.Builder().addAction(
             Action.Builder().setTitle("Vị trí").setOnClickListener { draw() }.build()
         ).build()).build()
-    override fun onDestroy() { stop(); super.onDestroy() }
+    init {
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_DESTROY) stop()
+        })
+    }
 }
