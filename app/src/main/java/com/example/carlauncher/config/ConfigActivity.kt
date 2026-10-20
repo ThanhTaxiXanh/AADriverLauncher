@@ -23,6 +23,11 @@ class ConfigActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // One-time upgrade of the previous default zoom. Preserve explicit non-default values.
+        if (!prefs.getBoolean("zoom_default_v23_migrated", false)) {
+            if (prefs.getInt("map_zoom", 16) == 16) prefs.edit().putInt("map_zoom", 18).apply()
+            prefs.edit().putBoolean("zoom_default_v23_migrated", true).apply()
+        }
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 36, 28, 36) }
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
@@ -32,7 +37,7 @@ class ConfigActivity : Activity() {
         toggle("Tự động bám theo vị trí xe", "follow_car", true)
         toggle("Xoay bản đồ theo hướng di chuyển", "follow_bearing", true)
         mapThemeSelector()
-        slider("Mức thu phóng", "map_zoom", 16, 12, 20)
+        slider("Mức thu phóng", "map_zoom", 18, 12, 20)
         slider("Độ nghiêng bản đồ", "map_pitch", 45, 0, 60)
         button("Cấp quyền GPS chính xác") {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 44)
