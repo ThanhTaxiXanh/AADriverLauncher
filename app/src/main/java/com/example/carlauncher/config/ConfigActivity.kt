@@ -25,7 +25,7 @@ class ConfigActivity : Activity() {
         super.onCreate(savedInstanceState)
         // One-time upgrade of the previous default zoom. Preserve explicit non-default values.
         if (!prefs.getBoolean("zoom_default_v23_migrated", false)) {
-            if (prefs.getInt("map_zoom", 16) == 16) prefs.edit().putInt("map_zoom", 18).apply()
+            if (!prefs.contains("map_zoom_float")) prefs.edit().putFloat("map_zoom_float", 17.5f).apply()
             prefs.edit().putBoolean("zoom_default_v23_migrated", true).apply()
         }
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 36, 28, 36) }
@@ -37,7 +37,7 @@ class ConfigActivity : Activity() {
         toggle("Tự động bám theo vị trí xe", "follow_car", true)
         toggle("Xoay bản đồ theo hướng di chuyển", "follow_bearing", true)
         mapThemeSelector()
-        slider("Mức thu phóng", "map_zoom", 18, 12, 20)
+        zoomSlider()
         slider("Độ nghiêng bản đồ", "map_pitch", 45, 0, 60)
         button("Cấp quyền GPS chính xác") {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 44)
@@ -93,6 +93,25 @@ class ConfigActivity : Activity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
         root.addView(spinner)
+    }
+    private fun zoomSlider() {
+        val label = TextView(this)
+        val seek = SeekBar(this).apply {
+            max = 16
+            progress = ((prefs.getFloat("map_zoom_float", 17.5f)-12f)*2).toInt().coerceIn(0,16)
+            setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                    val zoom = 12f + value / 2f
+                    label.text = "Mức thu phóng: $zoom"
+                    if (fromUser) prefs.edit().putFloat("map_zoom_float", zoom).apply()
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) {}
+                override fun onStopTrackingTouch(bar: SeekBar?) {}
+            })
+        }
+        label.text = "Mức thu phóng: ${12f + seek.progress/2f}"
+        root.addView(label)
+        root.addView(seek)
     }
     private fun slider(t:String,key:String,default:Int,min:Int,max:Int) {
         val label=TextView(this)
