@@ -68,8 +68,18 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private var manualCenter: Pair<Double, Double>? = null
     private var manualZoom: Double? = null
     private var manualSince = 0L
+    private var followCar = true
+    private var renderedCenter: Pair<Double, Double>? = null
+    private var renderedFollow = true
+    private var renderedZoom = 17.5
     private val vietnamZone = ZoneId.of("Asia/Ho_Chi_Minh")
-    private val listener = LocationListener { update -> location = update; requestRoadName(); draw() }
+    private val listener = LocationListener { update ->
+        if (update.accuracy > 100f && update.hasAccuracy()) return@LocationListener
+        location = update
+        requestRoadName()
+        requestMap()
+        draw()
+    }
     private val tick = object : Runnable {
         override fun run() { requestMap(); draw(); handler.postDelayed(this, 1000L) }
     }
@@ -109,6 +119,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     @SuppressLint("MissingPermission")
     private fun start() {
         handler.removeCallbacks(tick)
+        followCar = prefs.getBoolean("follow_car", true)
         handler.post(tick)
         requestRoadName()
         if (carContext.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
@@ -122,6 +133,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         try { locationManager.removeUpdates(listener) } catch (_: Exception) {}
     }
     private fun recenter() {
+        followCar = true
         manualCenter = null
         manualZoom = null
         manualSince = 0L
@@ -130,17 +142,17 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         draw()
     }
     private fun changeZoom(delta: Double) {
-        val old = manualZoom ?: prefs.getInt("map_zoom",18).toDouble()
+        val old = manualZoom ?: prefs.getFloat("map_zoom_float", 17.5f).toDouble()
         manualZoom = (old + delta).coerceIn(3.0,20.0)
-        manualCenter = manualCenter ?: location?.let { it.latitude to it.longitude }
+        // Zooming does not disable GPS follow. Only panning enters free-map mode.
         manualSince = android.os.SystemClock.elapsedRealtime()
         lastMapRequest = 0L
         requestMap()
     }
     private fun panMap(dx: Float, dy: Float) {
         val loc = location ?: return
-        val center = manualCenter ?: (loc.latitude to loc.longitude)
-        val z = manualZoom ?: prefs.getInt("map_zoom",16).toDouble()
+        val center = if (followCar) (loc.latitude to loc.longitude) else manualCenter ?: (loc.latitude to loc.longitude)
+        val z = manualZoom ?: prefs.getFloat("map_zoom_float",17.5f).toDouble()
         val mapW = width * .635
         val mapH = height * .84
         if (mapW <= 0 || mapH <= 0) return
@@ -151,6 +163,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         val north = (dx * kotlin.math.sin(heading) - dy * cos(heading)) * metersPerPx
         val lat = (center.first + north / 111320.0).coerceIn(-85.0,85.0)
         val lon = center.second - east / (111320.0 * cos(Math.toRadians(lat)).coerceAtLeast(0.01))
+        followCar = false
         manualCenter = lat to (((lon + 540.0) % 360.0) - 180.0)
         manualSince = android.os.SystemClock.elapsedRealtime()
         lastMapRequest = 0L
@@ -164,9 +177,9 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         val loc = location ?: return
         if (width <= 0 || height <= 0) return
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastMapRequest < 2500L) return
+        if (now - lastMapRequest < 850L) return
         lastMapRequest = now
-        val zoom = manualZoom ?: prefs.getInt("map_zoom", 18).coerceIn(12, 20).toDouble()
+        val zoom = manualZoom ?: prefs.getFloat("map_zoom_float", 17.5f).toDouble().coerceIn(12.0, 20.0)
         val pitch = prefs.getInt("map_pitch", 45).coerceIn(0, 60).toDouble()
         val hour = ZonedDateTime.now(vietnamZone).hour
         val night = when (prefs.getString("map_theme", "auto")) {
@@ -182,6 +195,9 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             (height * .84f).toInt().coerceAtLeast(64), night) { bitmap ->
             if (bitmap != null) {
                 mapBitmap = bitmap
+                renderedCenter = center
+                renderedFollow = followCar
+                renderedZoom = zoom
                 draw()
             }
         }
@@ -221,6 +237,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 lineTo(cx + marker*.64f, cy + marker*.75f)
                 close()
             }
+            if (renderedFollow && renderedCenter != null) {
             paint.color = Color.rgb(10, 22, 38)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = h*.009f
@@ -228,6 +245,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             paint.style = Paint.Style.FILL
             paint.color = accent
             canvas.drawPath(vehicle,paint)
+            }
             // Road-name chip just below the vehicle marker.
             paint.textSize = small*.86f
             val chipLabel = roadName.take(33)
@@ -270,7 +288,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             text(canvas,"−",w*.599f,h*.355f,small*1.8f,white)
             paint.color = Color.argb(220,11,16,24)
             canvas.drawRoundRect(w*.04f,h*.89f,w*.37f,h*.955f,12f,12f,paint)
-            text(canvas,if (manualCenter==null) "Đang theo xe" else "Về vị trí xe",w*.06f,h*.936f,small*.78f,accent)
+            text(canvas,if (followCar) "Đang theo xe" else "Về vị trí xe",w*.06f,h*.936f,small*.78f,accent)
         } finally { s.unlockCanvasAndPost(canvas) }
     }
     override fun onGetTemplate(): Template = NavigationTemplate.Builder()
