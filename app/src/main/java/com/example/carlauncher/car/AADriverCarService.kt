@@ -38,6 +38,8 @@ import com.example.carlauncher.config.LunarCalendar
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.pow
 
 /** Experimental Android Auto location display. Not turn-by-turn navigation. */
 class AADriverCarService : CarAppService() {
@@ -61,6 +63,9 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private val mapRenderer = CarMapSnapshotter(ctx)
     private var mapBitmap: Bitmap? = null
     private var lastMapRequest = 0L
+    private var manualCenter: Pair<Double, Double>? = null
+    private var manualZoom: Double? = null
+    private var manualSince = 0L
     private val vietnamZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val listener = LocationListener { update -> location = update; draw() }
     private val tick = object : Runnable {
@@ -74,6 +79,24 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 width = container.width
                 height = container.height
                 start()
+            }
+            override fun onScroll(distanceX: Float, distanceY: Float) {
+                panMap(distanceX, distanceY)
+            }
+            override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
+                if (focusX <= width * .66f && scaleFactor > 0f) {
+                    changeZoom(kotlin.math.log2(scaleFactor.toDouble()))
+                }
+            }
+            override fun onClick(x: Float, y: Float) {
+                if (x > width * .58f && x < width * .66f && y < height * .42f) {
+                    when {
+                        y < height * .22f -> changeZoom(1.0)
+                        else -> changeZoom(-1.0)
+                    }
+                } else if (x < width * .66f && y > height * .89f) {
+                    recenter()
+                }
             }
             override fun onSurfaceDestroyed(container: SurfaceContainer) {
                 stop()
@@ -95,13 +118,48 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         handler.removeCallbacks(tick)
         try { locationManager.removeUpdates(listener) } catch (_: Exception) {}
     }
+    private fun recenter() {
+        manualCenter = null
+        manualZoom = null
+        manualSince = 0L
+        lastMapRequest = 0L
+        requestMap()
+        draw()
+    }
+    private fun changeZoom(delta: Double) {
+        val old = manualZoom ?: prefs.getInt("map_zoom",16).toDouble()
+        manualZoom = (old + delta).coerceIn(3.0,20.0)
+        manualCenter = manualCenter ?: location?.let { it.latitude to it.longitude }
+        manualSince = android.os.SystemClock.elapsedRealtime()
+        lastMapRequest = 0L
+        requestMap()
+    }
+    private fun panMap(dx: Float, dy: Float) {
+        val loc = location ?: return
+        val center = manualCenter ?: (loc.latitude to loc.longitude)
+        val z = manualZoom ?: prefs.getInt("map_zoom",16).toDouble()
+        val mapW = width * .635
+        val mapH = height * .84
+        if (mapW <= 0 || mapH <= 0) return
+        // Approximate Web Mercator displacement of a drag in the map viewport.
+        val metersPerPx = 156543.03392 * cos(Math.toRadians(center.first)).coerceAtLeast(0.01) / 2.0.pow(z)
+        val heading = if (prefs.getBoolean("follow_bearing",true) && loc.hasBearing()) Math.toRadians(loc.bearing.toDouble()) else 0.0
+        val east = (dx * cos(heading) + dy * kotlin.math.sin(heading)) * metersPerPx
+        val north = (dx * kotlin.math.sin(heading) - dy * cos(heading)) * metersPerPx
+        val lat = (center.first + north / 111320.0).coerceIn(-85.0,85.0)
+        val lon = center.second - east / (111320.0 * cos(Math.toRadians(lat)).coerceAtLeast(0.01))
+        manualCenter = lat to (((lon + 540.0) % 360.0) - 180.0)
+        manualSince = android.os.SystemClock.elapsedRealtime()
+        lastMapRequest = 0L
+        requestMap()
+    }
     private fun requestMap() {
         val loc = location ?: return
         if (width <= 0 || height <= 0) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastMapRequest < 2500L) return
         lastMapRequest = now
-        val zoom = prefs.getInt("map_zoom", 16).coerceIn(12, 20).toDouble()
+        val zoom = manualZoom ?: prefs.getInt("map_zoom", 16).coerceIn(12, 20).toDouble()
         val pitch = prefs.getInt("map_pitch", 45).coerceIn(0, 60).toDouble()
         val hour = ZonedDateTime.now(vietnamZone).hour
         val night = when (prefs.getString("map_theme", "auto")) {
@@ -111,7 +169,8 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         }
         val followBearing = prefs.getBoolean("follow_bearing", true)
         val bearing = if (followBearing && loc.hasBearing()) loc.bearing.toDouble() else 0.0
-        mapRenderer.request(loc.latitude, loc.longitude, bearing, zoom, pitch,
+        val center = manualCenter ?: (loc.latitude to loc.longitude)
+        mapRenderer.request(center.first, center.second, bearing, zoom, pitch,
             (width * .635f).toInt().coerceAtLeast(64),
             (height * .84f).toInt().coerceAtLeast(64), night) { bitmap ->
             if (bitmap != null) {
@@ -186,12 +245,19 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 text(canvas,line,right,h*(.66f+index*.11f),small*.84f,white)
                 text(canvas,e.countdown,right,h*(.71f+index*.11f),small*.7f,accent)
             }
-            text(canvas,"Mapbox • Camera theo xe",w*.05f,h*.92f,small*.8f,white)
+            // Touch targets inside the map: +/- zoom, and bottom-left recenter.
+            paint.color = Color.argb(220, 11, 16, 24)
+            canvas.drawRoundRect(w*.58f,h*.135f,w*.655f,h*.4f,12f,12f,paint)
+            text(canvas,"+",w*.599f,h*.218f,small*1.8f,white)
+            text(canvas,"−",w*.599f,h*.355f,small*1.8f,white)
+            paint.color = Color.argb(220,11,16,24)
+            canvas.drawRoundRect(w*.04f,h*.89f,w*.37f,h*.955f,12f,12f,paint)
+            text(canvas,if (manualCenter==null) "Đang theo xe" else "Về vị trí xe",w*.06f,h*.936f,small*.78f,accent)
         } finally { s.unlockCanvasAndPost(canvas) }
     }
     override fun onGetTemplate(): Template = NavigationTemplate.Builder()
         .setActionStrip(ActionStrip.Builder().addAction(
-            Action.Builder().setTitle("Vị trí").setOnClickListener { draw() }.build()
+            Action.Builder().setTitle("Về xe").setOnClickListener { recenter() }.build()
         ).build()).build()
     init {
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
