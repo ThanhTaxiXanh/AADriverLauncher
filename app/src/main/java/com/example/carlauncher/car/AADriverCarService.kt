@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Bitmap
+import android.graphics.RectF
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -53,9 +55,12 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private var width = 0
     private var height = 0
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val mapRenderer = CarMapSnapshotter(ctx)
+    private var mapBitmap: Bitmap? = null
+    private var lastMapRequest = 0L
     private val listener = LocationListener { update -> location = update; draw() }
     private val tick = object : Runnable {
-        override fun run() { draw(); handler.postDelayed(this, 1000L) }
+        override fun run() { requestMap(); draw(); handler.postDelayed(this, 1000L) }
     }
 
     init {
@@ -86,6 +91,25 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         handler.removeCallbacks(tick)
         try { locationManager.removeUpdates(listener) } catch (_: Exception) {}
     }
+    private fun requestMap() {
+        val loc = location ?: return
+        if (width <= 0 || height <= 0) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastMapRequest < 2500L) return
+        lastMapRequest = now
+        val zoom = prefs.getInt("map_zoom", 16).coerceIn(12, 20).toDouble()
+        val pitch = prefs.getInt("map_pitch", 45).coerceIn(0, 60).toDouble()
+        val followBearing = prefs.getBoolean("follow_bearing", true)
+        val bearing = if (followBearing && loc.hasBearing()) loc.bearing.toDouble() else 0.0
+        mapRenderer.request(loc.latitude, loc.longitude, bearing, zoom, pitch,
+            (width * .635f).toInt().coerceAtLeast(64),
+            (height * .84f).toInt().coerceAtLeast(64)) { bitmap ->
+            if (bitmap != null) {
+                mapBitmap = bitmap
+                draw()
+            }
+        }
+    }
     private fun text(c: Canvas, value: String, x: Float, y: Float, size: Float, color: Int) {
         paint.color = color; paint.textSize = size; paint.style = Paint.Style.FILL
         c.drawText(value, x, y, paint)
@@ -104,14 +128,14 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             val mapRight = w*.66f
             paint.color = Color.rgb(21, 34, 51)
             canvas.drawRoundRect(w*.025f,h*.12f,mapRight,h*.96f,20f,20f,paint)
-            // Phase-2 host compatibility test: vehicle-centred GPS display, no map tiles yet.
-            val cx=(w*.025f+mapRight)/2f; val cy=h*.54f
-            paint.color = Color.rgb(38, 62, 84)
-            for(i in -3..3) {
-                val offset=i*h*.11f
-                canvas.drawRect(w*.04f,cy+offset,mapRight-w*.02f,cy+offset+1.5f,paint)
-                canvas.drawRect(cx+offset,h*.14f,cx+offset+1.5f,h*.94f,paint)
+            val map = mapBitmap
+            if (map != null) {
+                paint.color = Color.WHITE
+                canvas.drawBitmap(map, null, RectF(w*.025f,h*.12f,mapRight,h*.96f), paint)
+            } else {
+                text(canvas, "Đang tải bản đồ Mapbox...", w*.05f, h*.52f, small, white)
             }
+            val cx=(w*.025f+mapRight)/2f; val cy=h*.54f
             paint.color=accent
             canvas.drawCircle(cx,cy,h*.03f,paint)
             val loc=location
@@ -134,7 +158,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 text(canvas,line,right,h*(.66f+index*.11f),small*.84f,white)
                 text(canvas,e.countdown,right,h*(.71f+index*.11f),small*.7f,accent)
             }
-            text(canvas,"Bản đồ thực: đang tích hợp",w*.05f,h*.92f,small*.8f,white)
+            text(canvas,"Mapbox • Camera theo xe",w*.05f,h*.92f,small*.8f,white)
         } finally { s.unlockCanvasAndPost(canvas) }
     }
     override fun onGetTemplate(): Template = NavigationTemplate.Builder()
@@ -143,7 +167,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         ).build()).build()
     init {
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_DESTROY) stop()
+            if (event == Lifecycle.Event.ON_DESTROY) { stop(); mapRenderer.close() }
         })
     }
 }
