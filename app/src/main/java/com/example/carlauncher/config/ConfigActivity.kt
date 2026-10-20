@@ -114,7 +114,7 @@ class ConfigActivity : Activity() {
         val month=EditText(this).apply { hint="Tháng"; inputType=2 }
         val year=EditText(this).apply { hint="Năm (nếu một lần)"; inputType=2 }
         val repeat=Spinner(this).apply { adapter=ArrayAdapter(this@ConfigActivity,android.R.layout.simple_spinner_dropdown_item,listOf("Hằng năm","Hằng tháng","Một lần")) }
-        listOf(name,lunar,day,month,year,repeat).forEach(wrap::addView)
+        listOf(name,lunar,day,month,year,repeat).forEach { wrap.addView(it) }
         AlertDialog.Builder(this).setTitle("Thêm sự kiện").setView(wrap).setNegativeButton("Hủy",null).setPositiveButton("Lưu") { _,_ ->
             val d=day.text.toString().toIntOrNull() ?: 0
             val m=month.text.toString().toIntOrNull() ?: 0
