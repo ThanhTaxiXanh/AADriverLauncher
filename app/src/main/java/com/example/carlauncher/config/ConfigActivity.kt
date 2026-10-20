@@ -31,6 +31,7 @@ class ConfigActivity : Activity() {
         section("Bản đồ theo xe")
         toggle("Tự động bám theo vị trí xe", "follow_car", true)
         toggle("Xoay bản đồ theo hướng di chuyển", "follow_bearing", true)
+        mapThemeSelector()
         slider("Mức thu phóng", "map_zoom", 16, 12, 20)
         slider("Độ nghiêng bản đồ", "map_pitch", 45, 0, 60)
         button("Cấp quyền GPS chính xác") {
@@ -72,6 +73,21 @@ class ConfigActivity : Activity() {
             text=t; isChecked=prefs.getBoolean(key,default)
             setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean(key,checked).apply() }
         })
+    }
+    private fun mapThemeSelector() {
+        val choices = arrayOf("Tự động (06:00–18:00)", "Luôn sáng", "Luôn tối")
+        val values = arrayOf("auto", "light", "dark")
+        text("Chế độ màu bản đồ")
+        val spinner = Spinner(this)
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, choices.toList())
+        spinner.setSelection(values.indexOf(prefs.getString("map_theme", "auto")).coerceAtLeast(0))
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.edit().putString("map_theme", values[position]).apply()
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        root.addView(spinner)
     }
     private fun slider(t:String,key:String,default:Int,min:Int,max:Int) {
         val label=TextView(this)
