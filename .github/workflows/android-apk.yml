@@ -1,4 +1,4 @@
-name: Build signed Android APK
+name: AADriverLauncher Build
 
 on:
   workflow_dispatch:
