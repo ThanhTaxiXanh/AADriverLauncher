@@ -57,7 +57,7 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          for key in MAPBOX_DOWNLOADS_TOKEN ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD KEYSTORE_B64; do
+          for key in MAPBOX_DOWNLOADS_TOKEN MAPBOX_ACCESS_TOKEN ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD KEYSTORE_B64; do
             if [ -z "${!key}" ]; then
               echo "::error::Missing required secret: $key"
               exit 1
