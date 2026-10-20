@@ -34,10 +34,8 @@ import java.util.Locale
 
 /** Experimental Android Auto location display. Not turn-by-turn navigation. */
 class AADriverCarService : CarAppService() {
-    override fun createHostValidator(): HostValidator =
-        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
-            HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
-        else HostValidator.Builder(this).addAllowedHosts(androidx.car.app.R.array.hosts_allowlist_sample).build()
+    // Development-only host validation; restrict trusted hosts before production distribution.
+    override fun createHostValidator(): HostValidator = HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
 
     override fun onCreateSession(): Session = object : Session() {
         override fun onCreateScreen(intent: Intent): Screen = PositionScreen(carContext)
