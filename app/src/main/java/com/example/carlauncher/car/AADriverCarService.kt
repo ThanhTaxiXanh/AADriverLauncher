@@ -61,13 +61,15 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private var height = 0
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val mapRenderer = CarMapSnapshotter(ctx)
+    private val roadLookup = CarRoadNameLookup()
+    private var roadName = "Đang xác định tên đường..."
     private var mapBitmap: Bitmap? = null
     private var lastMapRequest = 0L
     private var manualCenter: Pair<Double, Double>? = null
     private var manualZoom: Double? = null
     private var manualSince = 0L
     private val vietnamZone = ZoneId.of("Asia/Ho_Chi_Minh")
-    private val listener = LocationListener { update -> location = update; draw() }
+    private val listener = LocationListener { update -> location = update; requestRoadName(); draw() }
     private val tick = object : Runnable {
         override fun run() { requestMap(); draw(); handler.postDelayed(this, 1000L) }
     }
@@ -108,6 +110,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private fun start() {
         handler.removeCallbacks(tick)
         handler.post(tick)
+        requestRoadName()
         if (carContext.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         try {
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { location = it }
@@ -127,7 +130,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         draw()
     }
     private fun changeZoom(delta: Double) {
-        val old = manualZoom ?: prefs.getInt("map_zoom",16).toDouble()
+        val old = manualZoom ?: prefs.getInt("map_zoom",18).toDouble()
         manualZoom = (old + delta).coerceIn(3.0,20.0)
         manualCenter = manualCenter ?: location?.let { it.latitude to it.longitude }
         manualSince = android.os.SystemClock.elapsedRealtime()
@@ -153,13 +156,17 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         lastMapRequest = 0L
         requestMap()
     }
+    private fun requestRoadName() {
+        val current = location ?: return
+        roadLookup.refresh(current.latitude,current.longitude) { roadName = it; draw() }
+    }
     private fun requestMap() {
         val loc = location ?: return
         if (width <= 0 || height <= 0) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastMapRequest < 2500L) return
         lastMapRequest = now
-        val zoom = manualZoom ?: prefs.getInt("map_zoom", 16).coerceIn(12, 20).toDouble()
+        val zoom = manualZoom ?: prefs.getInt("map_zoom", 18).coerceIn(12, 20).toDouble()
         val pitch = prefs.getInt("map_pitch", 45).coerceIn(0, 60).toDouble()
         val hour = ZonedDateTime.now(vietnamZone).hour
         val night = when (prefs.getString("map_theme", "auto")) {
@@ -204,7 +211,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             } else {
                 text(canvas, "Đang tải bản đồ Mapbox...", w*.05f, h*.52f, small, white)
             }
-            val cx=(w*.025f+mapRight)/2f; val cy=h*.54f
+            val cx=(w*.025f+mapRight)/2f; val cy=h*.68f
             // Heading-up car marker; map bearing already rotates the underlying streets.
             val marker = h * .045f
             val vehicle = Path().apply {
@@ -221,6 +228,17 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             paint.style = Paint.Style.FILL
             paint.color = accent
             canvas.drawPath(vehicle,paint)
+            // Road-name chip just below the vehicle marker.
+            paint.textSize = small*.86f
+            val chipLabel = roadName.take(33)
+            val chipW = (paint.measureText(chipLabel) + w*.045f).coerceAtMost(w*.50f)
+            val chipTop = cy + h*.042f
+            paint.color = Color.argb(226, 11, 16, 24)
+            canvas.drawRoundRect(cx-chipW/2, chipTop, cx+chipW/2, chipTop+h*.069f, 13f, 13f, paint)
+            paint.color = white
+            paint.textAlign = Paint.Align.CENTER
+            text(canvas,chipLabel,cx,chipTop+h*.048f,small*.86f,white)
+            paint.textAlign = Paint.Align.LEFT
             val loc=location
             paint.color = Color.argb(208, 11, 16, 24)
             canvas.drawRoundRect(w*.045f,h*.155f,w*.31f,h*.315f,16f,16f,paint)
@@ -261,7 +279,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         ).build()).build()
     init {
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_DESTROY) { stop(); mapRenderer.close() }
+            if (event == Lifecycle.Event.ON_DESTROY) { stop(); mapRenderer.close(); roadLookup.close() }
         })
     }
 }
