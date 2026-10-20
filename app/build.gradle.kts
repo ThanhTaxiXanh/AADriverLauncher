@@ -138,6 +138,7 @@ androidComponents.finalizeDsl { ext ->
 
 dependencies {
     implementation("androidx.car.app:app:1.4.0")
+    implementation("com.google.guava:guava:33.3.1-android")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.profileinstaller)
     baselineProfile(project(":macrobenchmark"))
