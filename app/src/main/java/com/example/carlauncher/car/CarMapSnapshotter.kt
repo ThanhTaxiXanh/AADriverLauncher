@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
+import com.mapbox.maps.EdgeInsets
 import com.mapbox.maps.MapSnapshotOptions
 import com.mapbox.maps.Size
 import com.mapbox.maps.Snapshotter
@@ -34,7 +35,8 @@ internal class CarMapSnapshotter(private val context: Context) {
         snap.setSize(Size(width.toFloat(), height.toFloat()))
         snap.setCamera(CameraOptions.Builder()
             .center(Point.fromLngLat(longitude, latitude))
-            .zoom(zoom).bearing(bearing).pitch(pitch).build())
+            .zoom(zoom).bearing(bearing).pitch(pitch)
+            .padding(EdgeInsets(height * 0.28, 0.0, 0.0, 0.0)).build())
         snap.start { bitmap, _ ->
             busy = false
             if (active) callback(bitmap)
