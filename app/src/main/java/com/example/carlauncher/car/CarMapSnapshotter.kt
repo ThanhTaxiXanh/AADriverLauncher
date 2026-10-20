@@ -16,10 +16,15 @@ internal class CarMapSnapshotter(private val context: Context) {
     private var busy = false
     private var active = true
     private var styleUri: String? = null
+    private var queued: (() -> Unit)? = null
 
     fun request(latitude: Double, longitude: Double, bearing: Double, zoom: Double,
                 pitch: Double, width: Int, height: Int, darkMode: Boolean, callback: (Bitmap?) -> Unit) {
-        if (!active || busy || width <= 0 || height <= 0) return
+        if (!active || width <= 0 || height <= 0) return
+        if (busy) {
+            queued = { request(latitude, longitude, bearing, zoom, pitch, width, height, darkMode, callback) }
+            return
+        }
         busy = true
         val snap = snapshotter ?: Snapshotter(context, MapSnapshotOptions.Builder()
             .size(Size(width.toFloat(), height.toFloat()))
@@ -39,12 +44,18 @@ internal class CarMapSnapshotter(private val context: Context) {
             .padding(EdgeInsets(height * 0.28, 0.0, 0.0, 0.0)).build())
         snap.start { bitmap, _ ->
             busy = false
-            if (active) callback(bitmap)
+            if (active) {
+                callback(bitmap)
+                val next = queued
+                queued = null
+                next?.invoke()
+            }
         }
     }
 
     fun close() {
         active = false
+        queued = null
         snapshotter?.cancel()
         snapshotter?.destroy()
         snapshotter = null
