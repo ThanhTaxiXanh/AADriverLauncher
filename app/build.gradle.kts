@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.io.File
 
 plugins {
     alias(libs.plugins.android.application)
@@ -38,16 +39,31 @@ android {
         applicationId = "com.example.carlauncher"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = System.getenv("CI_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("CI_VERSION_NAME") ?: "1.0"
 
         buildConfigField("String", "MAPBOX_ACCESS_TOKEN", "\"$mapboxAccessToken\"")
         buildConfigField("boolean", "INCIDENT_RECORDER_ENABLED", incidentRecorderEnabled)
         buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
     }
 
+    signingConfigs {
+        create("ciRelease") {
+            val keyFile = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (!keyFile.isNullOrBlank()) {
+                storeFile = File(keyFile)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (!System.getenv("ANDROID_KEYSTORE_PATH").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("ciRelease")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
