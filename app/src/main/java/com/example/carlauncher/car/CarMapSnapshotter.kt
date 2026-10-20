@@ -14,18 +14,23 @@ internal class CarMapSnapshotter(private val context: Context) {
     private var snapshotter: Snapshotter? = null
     private var busy = false
     private var active = true
+    private var styleUri: String? = null
 
     fun request(latitude: Double, longitude: Double, bearing: Double, zoom: Double,
-                pitch: Double, width: Int, height: Int, callback: (Bitmap?) -> Unit) {
+                pitch: Double, width: Int, height: Int, darkMode: Boolean, callback: (Bitmap?) -> Unit) {
         if (!active || busy || width <= 0 || height <= 0) return
         busy = true
         val snap = snapshotter ?: Snapshotter(context, MapSnapshotOptions.Builder()
             .size(Size(width.toFloat(), height.toFloat()))
             .pixelRatio(1.0f)
             .build()).also {
-                it.setStyleUri(Style.STANDARD)
                 snapshotter = it
             }
+        val desiredStyle = if (darkMode) Style.DARK else Style.LIGHT
+        if (styleUri != desiredStyle) {
+            snap.setStyleUri(desiredStyle)
+            styleUri = desiredStyle
+        }
         snap.setSize(Size(width.toFloat(), height.toFloat()))
         snap.setCamera(CameraOptions.Builder()
             .center(Point.fromLngLat(longitude, latitude))
