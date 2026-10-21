@@ -62,6 +62,10 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val mapRenderer = CarMapSnapshotter(ctx)
     private val roadLookup = CarRoadNameLookup()
+    private val trip = CarTripStats(ctx)
+    private var threeD = true
+    private var northUp = false
+    private var pendingResetUntil = 0L
     private var roadName = "Đang xác định tên đường..."
     private var mapBitmap: Bitmap? = null
     private var lastMapRequest = 0L
@@ -76,6 +80,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     private val listener = LocationListener { update ->
         if (update.accuracy > 100f && update.hasAccuracy()) return@LocationListener
         location = update
+        trip.accept(update)
         requestRoadName()
         requestMap()
         draw()
@@ -101,13 +106,30 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 }
             }
             override fun onClick(x: Float, y: Float) {
-                if (x > width * .58f && x < width * .66f && y < height * .42f) {
-                    when {
-                        y < height * .22f -> changeZoom(1.0)
-                        else -> changeZoom(-1.0)
+                val w = width.toFloat(); val h = height.toFloat()
+                if (x < w*.66f) {
+                    // Top-right floating controls.
+                    if (y in h*.14f..h*.29f && x > w*.46f) {
+                        if (x < w*.56f) northUp = !northUp else threeD = !threeD
+                        lastMapRequest = 0L; requestMap(); draw()
+                        return
                     }
-                } else if (x < width * .66f && y > height * .89f) {
-                    recenter()
+                    // Left control rail, lower 70% of map.
+                    if (x < w*.12f && y in h*.61f..h*.95f) {
+                        when {
+                            y < h*.725f -> changeZoom(.5)
+                            y < h*.835f -> changeZoom(-.5)
+                            else -> recenter()
+                        }
+                        return
+                    }
+                    // Distance / AVG bottom-right panel: deliberate second tap to reset.
+                    if (x > w*.365f && y in h*.855f..h*.955f) {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now < pendingResetUntil) { trip.reset(); pendingResetUntil = 0L }
+                        else pendingResetUntil = now + 5000L
+                        draw()
+                    }
                 }
             }
             override fun onSurfaceDestroyed(container: SurfaceContainer) {
@@ -130,6 +152,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
     }
     private fun stop() {
         handler.removeCallbacks(tick)
+        trip.save()
         try { locationManager.removeUpdates(listener) } catch (_: Exception) {}
     }
     private fun recenter() {
@@ -180,7 +203,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
         if (now - lastMapRequest < 850L) return
         lastMapRequest = now
         val zoom = manualZoom ?: prefs.getFloat("map_zoom_float", 17.5f).toDouble().coerceIn(12.0, 20.0)
-        val pitch = prefs.getInt("map_pitch", 45).coerceIn(0, 60).toDouble()
+        val pitch = if (threeD) prefs.getInt("map_pitch", 45).coerceIn(25, 60).toDouble() else 0.0
         val hour = ZonedDateTime.now(vietnamZone).hour
         val night = when (prefs.getString("map_theme", "auto")) {
             "dark" -> true
@@ -188,8 +211,8 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             else -> hour < 6 || hour >= 18
         }
         val followBearing = prefs.getBoolean("follow_bearing", true)
-        val bearing = if (followBearing && loc.hasBearing()) loc.bearing.toDouble() else 0.0
-        val center = manualCenter ?: (loc.latitude to loc.longitude)
+        val bearing = if (!northUp && followBearing && loc.hasBearing()) loc.bearing.toDouble() else 0.0
+        val center = if (followCar) (loc.latitude to loc.longitude) else manualCenter ?: (loc.latitude to loc.longitude)
         mapRenderer.request(center.first, center.second, bearing, zoom, pitch,
             (width * .635f).toInt().coerceAtLeast(64),
             (height * .84f).toInt().coerceAtLeast(64), night) { bitmap ->
@@ -262,11 +285,7 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
             canvas.drawRoundRect(w*.045f,h*.155f,w*.31f,h*.315f,16f,16f,paint)
             val speed = if (loc==null) "--" else (loc.speed*3.6f).toInt().coerceAtLeast(0).toString()
             text(canvas,"$speed km/h",w*.065f,h*.265f,small*1.6f,accent)
-            if(loc!=null) {
-                paint.color = Color.argb(190, 11, 16, 24)
-                canvas.drawRoundRect(w*.045f,h*.815f,w*.46f,h*.89f,12f,12f,paint)
-                text(canvas,String.format(Locale.US,"%.5f, %.5f",loc.latitude,loc.longitude),w*.06f,h*.865f,small*.75f,white)
-            }
+
             val right=w*.69f
             val today=ZonedDateTime.now(vietnamZone).toLocalDate()
             val lunar=LunarCalendar.solarToLunar(today.dayOfMonth,today.monthValue,today.year)
@@ -281,14 +300,36 @@ private class PositionScreen(ctx: CarContext) : Screen(ctx) {
                 text(canvas,line,right,h*(.66f+index*.11f),small*.84f,white)
                 text(canvas,e.countdown,right,h*(.71f+index*.11f),small*.7f,accent)
             }
-            // Touch targets inside the map: +/- zoom, and bottom-left recenter.
-            paint.color = Color.argb(220, 11, 16, 24)
-            canvas.drawRoundRect(w*.58f,h*.135f,w*.655f,h*.4f,12f,12f,paint)
-            text(canvas,"+",w*.599f,h*.218f,small*1.8f,white)
-            text(canvas,"−",w*.599f,h*.355f,small*1.8f,white)
-            paint.color = Color.argb(220,11,16,24)
-            canvas.drawRoundRect(w*.04f,h*.89f,w*.37f,h*.955f,12f,12f,paint)
-            text(canvas,if (followCar) "Đang theo xe" else "Về vị trí xe",w*.06f,h*.936f,small*.78f,accent)
+            // Raised map controls matching the approved mockup.
+            fun circleButton(x: Float, y: Float, label: String, highlighted: Boolean = false) {
+                paint.color = Color.argb(231, 14, 28, 45)
+                paint.style = Paint.Style.FILL
+                canvas.drawCircle(x, y, h*.039f, paint)
+                paint.textAlign = Paint.Align.CENTER
+                text(canvas,label,x,y+small*.36f,small*.95f,if (highlighted) accent else white)
+                paint.textAlign = Paint.Align.LEFT
+            }
+            circleButton(w*.50f,h*.21f,if (northUp) "N" else "⌖",northUp)
+            circleButton(w*.605f,h*.21f,if (threeD) "3D" else "2D",true)
+            circleButton(w*.078f,h*.685f,"+")
+            circleButton(w*.078f,h*.79f,"−")
+            circleButton(w*.078f,h*.895f,"◎")
+            paint.color = Color.argb(230, 12, 27, 42)
+            canvas.drawRoundRect(w*.36f,h*.77f,w*.645f,h*.95f,16f,16f,paint)
+            text(canvas,"Distance",w*.38f,h*.817f,small*.69f,white)
+            paint.textAlign = Paint.Align.RIGHT
+            text(canvas,String.format(Locale.US,"%.1f km",trip.distanceMeters/1000.0),w*.626f,h*.817f,small*.80f,white)
+            paint.textAlign = Paint.Align.LEFT
+            text(canvas,"AVG",w*.38f,h*.862f,small*.69f,white)
+            paint.textAlign = Paint.Align.RIGHT
+            text(canvas,String.format(Locale.US,"%.0f km/h",trip.averageKmh),w*.626f,h*.862f,small*.80f,white)
+            paint.textAlign = Paint.Align.LEFT
+            paint.color = Color.rgb(49,65,80)
+            canvas.drawRoundRect(w*.375f,h*.878f,w*.631f,h*.940f,13f,13f,paint)
+            paint.textAlign = Paint.Align.CENTER
+            val confirmReset = android.os.SystemClock.elapsedRealtime() < pendingResetUntil
+            text(canvas,if(confirmReset) "Chạm lại để xóa" else "Reset",w*.503f,h*.923f,small*.73f,white)
+            paint.textAlign = Paint.Align.LEFT
         } finally { s.unlockCanvasAndPost(canvas) }
     }
     override fun onGetTemplate(): Template = NavigationTemplate.Builder()
